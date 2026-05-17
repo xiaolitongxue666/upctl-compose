@@ -42,7 +42,7 @@ test.describe("部署环境", () => {
 
     // Create a ticket
     await page.locator('input[placeholder="请输入工单标题"]').fill("E2E test deploy env");
-    await page.locator('textarea[placeholder="请输入工单内容"]').fill("Testing deploy env feature");
+    await page.locator('textarea[placeholder*="工单内容"]').fill("Testing deploy env feature");
     await page.locator('button:has-text("提交")').click();
     await page.waitForTimeout(2000);
 
