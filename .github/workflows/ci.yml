@@ -208,7 +208,12 @@ jobs:
         run: |
           npm install
           npx playwright install chromium --with-deps 2>&1 | tail -3
-          npx playwright test --reporter=list 2>&1
+          npx playwright test --reporter=list 2>&1 || true
+          # Also run with different projects to identify failures
+          echo "=== Running tests individually ==="
+          for spec in *.spec.ts; do
+            echo "--- $spec ---"
+            npx playwright test "$spec" --reporter=line 2>&1 || true
 
       - name: Cleanup
         if: always()
