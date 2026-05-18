@@ -1,5 +1,7 @@
 FROM node:22-alpine AS builder
 
+# Cache-buster: set BUILD_DATE to force re-fetch of latest AuthCoreAdmin
+ARG BUILD_DATE
 WORKDIR /app
 RUN apk add --no-cache git && \
     git clone --depth 1 https://github.com/alchemy-studio/AuthCoreAdmin.git .

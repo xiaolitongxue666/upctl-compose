@@ -73,6 +73,8 @@ services:
   upctl-web:
     build:
       context: ./upctl-web
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       - authcore
       - upctl-svc
@@ -82,6 +84,8 @@ services:
   authcoreadmin:
     build:
       context: ./authcoreadmin
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       - authcore
     ports:
