@@ -5,6 +5,8 @@ RUN apt-get update && apt-get install -y libpq-dev pkg-config git && rm -rf /var
 # Install diesel CLI for migration management
 RUN cargo install diesel_cli --no-default-features --features postgres
 
+# Cache-buster: set BUILD_DATE to force re-fetch of latest AuthCore
+ARG BUILD_DATE
 WORKDIR /app
 RUN git clone --depth 1 https://github.com/alchemy-studio/AuthCore.git .
 

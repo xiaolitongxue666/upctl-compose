@@ -29,6 +29,8 @@ services:
   authcore:
     build:
       context: ./authcore
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
