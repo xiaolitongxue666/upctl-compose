@@ -119,9 +119,22 @@ jobs:
         run: |
           # Configure memory_dir so agent-prompt tests include "Memory 上下文" section
           docker compose exec -T upctl-svc sh -c 'mkdir -p /app/data && echo "/app/data" > /app/data/memory_dir.txt'
-          docker compose exec -T upctl-svc sh -c 'echo "不要进入plan mode，直接干活" > /app/data/prompt_prefix.txt'
-          # Create MEMORY.md so the assembled prompt references it
-          printf "upctl-compose dev compose stack\n" | docker compose exec -T upctl-svc sh -c 'cat > /app/data/MEMORY.md'
+          # Seed prompt_prefix.txt from canonical repo file
+          docker compose cp docs/prompt_prefix.txt upctl-svc:/app/data/prompt_prefix.txt
+          # Seed MEMORY.md from canonical repo file (not a throwaway one-liner)
+          docker compose cp docs/MEMORY.md upctl-svc:/app/data/MEMORY.md
+
+      - name: Verify MEMORY.md and prompt_prefix are properly seeded
+        run: |
+          echo "=== Verifying MEMORY.md ==="
+          docker compose exec -T upctl-svc sh -c 'wc -l /app/data/MEMORY.md && head -3 /app/data/MEMORY.md'
+          docker compose exec -T upctl-svc sh -c 'test -s /app/data/MEMORY.md && echo "✅ MEMORY.md exists and non-empty" || echo "❌ MEMORY.md missing/empty"'
+          echo "=== Verifying prompt_prefix.txt ==="
+          docker compose exec -T upctl-svc sh -c 'cat /app/data/prompt_prefix.txt && echo ""'
+          docker compose exec -T upctl-svc sh -c 'grep -q "直接干活" /app/data/prompt_prefix.txt && echo "✅ prompt_prefix contains expected content"'
+          echo "=== Verifying memory_dir.txt ==="
+          docker compose exec -T upctl-svc sh -c 'cat /app/data/memory_dir.txt'
+          docker compose exec -T upctl-svc sh -c 'grep -q "/app/data" /app/data/memory_dir.txt && echo "✅ memory_dir points to /app/data"'
 
       - name: Smoke test — nginx serves frontend
         run: |
