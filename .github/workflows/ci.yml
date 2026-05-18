@@ -225,6 +225,14 @@ jobs:
           npx playwright install chromium --with-deps 2>&1 | tail -3
           npx playwright test --reporter=list 2>&1 || true
 
+      - name: Upload Playwright screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: tests/playwright/screenshots/
+          retention-days: 7
+
       - name: Cleanup
         if: always()
         run: docker compose down -v
