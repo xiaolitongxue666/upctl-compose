@@ -98,6 +98,12 @@ test.describe("MEMORY.md & 默认 Prompt 验证", () => {
         };
 
         // 2a. 获取 prompt prefix 配置
+        await fetch(`${apiBase}/config/memory-dir`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ memory_dir: "/app/data" }),
+        });
+
         const prefixResp = await fetch(`${apiBase}/config/prompt-prefix`, {
           headers,
         });
@@ -246,6 +252,15 @@ test.describe("MEMORY.md & 默认 Prompt 验证", () => {
     // 抓取完整组装提示词
     const result = await page.evaluate(
       async ({ apiBase, jwt }) => {
+        await fetch(`${apiBase}/config/memory-dir`, {
+          method: "PUT",
+          headers: {
+            Authorization: jwt!,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ memory_dir: "/app/data" }),
+        });
+
         const resp = await fetch(`${apiBase}/agent/prompt`, {
           method: "POST",
           headers: {

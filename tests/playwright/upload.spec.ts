@@ -140,8 +140,7 @@ test.describe("Image upload", () => {
     await expect(images.first()).toBeVisible();
   });
 
-  // FIXME: page.route + XHR doesn't work reliably for file uploads in CI
-  test.skip("shows error message on upload failure", async ({ page }) => {
+  test("shows error message on upload failure", async ({ page }) => {
     const pngPath = path.join(tmpDir, "fail.png");
     fs.writeFileSync(pngPath, MINI_PNG);
 
@@ -166,5 +165,6 @@ test.describe("Image upload", () => {
     await page.waitForTimeout(500);
     const bodyText = await page.locator("textarea").inputValue();
     expect(bodyText).not.toContain("![fail.png](");
+    await expect(page.locator("text=Upload failed")).toBeVisible();
   });
 });

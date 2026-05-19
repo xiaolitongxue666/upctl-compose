@@ -38,6 +38,17 @@ const HEADERS = {
   "Content-Type": "application/json",
 };
 
+test.beforeEach(async () => {
+  const resp = await fetch(`${API_BASE}/config/memory-dir`, {
+    method: "PUT",
+    headers: HEADERS,
+    body: JSON.stringify({ memory_dir: "/app/data" }),
+  });
+  expect(resp.status).toBe(200);
+  const body = await resp.json();
+  expect(body.r).toBe(true);
+});
+
 async function apiPost(path: string, data: any) {
   const resp = await fetch(`${API_BASE}${path}`, {
     method: "POST",
@@ -157,6 +168,7 @@ test.describe("Agent prompt — duplication check", () => {
     expect(userPromptIdx).toBeGreaterThan(ticketIdx);
 
     console.log(`Order check: prefix=${prefixIdx} < memory=${memoryIdx} < ticket=${ticketIdx} < user=${userPromptIdx}`);
+    await apiPost(`/tickets/${ticketNum}/close`, {});
   });
 
   // Skip non-dry_run test in Docker: the ai-agent container uses python:3.12-slim

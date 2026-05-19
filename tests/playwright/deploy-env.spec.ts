@@ -48,9 +48,10 @@ test.describe("部署环境", () => {
 
     // Ensure at least one deploy env exists via API
     const envName = "TestEnv-" + Date.now();
+    const envDomain = `${envName.toLowerCase()}.env.test`;
     const createEnvResponse = await page.request.post(`${BASE_URL}/api/v2/upctl/api/deploy_envs`, {
       headers: { Authorization: generateJwt(), "Content-Type": "application/json" },
-      data: { name: envName, domain: "test.env.com" },
+      data: { name: envName, domain: envDomain },
     });
     expect(createEnvResponse.ok()).toBeTruthy();
 
@@ -65,7 +66,7 @@ test.describe("部署环境", () => {
     await expect(page.locator(`text=${envName}`)).toBeVisible({ timeout: 5_000 });
 
     // Should show the domain
-    await expect(page.locator("text=test.env.com")).toBeVisible();
+    await expect(page.locator(`label:has-text("${envName}")`).locator(`text=${envDomain}`)).toBeVisible();
 
     // Select it
     await page.locator(`text=${envName}`).click();

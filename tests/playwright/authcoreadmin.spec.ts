@@ -5,6 +5,7 @@ const AUTH_ADMIN_URL = `${BASE}/admin`;
 
 /** Navigate using Vue Router (SPA) to preserve user roles in the store. */
 async function spaNavigate(page: Page, path: string) {
+  const destinationPath = path.startsWith("/") ? path : "/" + path;
   await page.evaluate((p) => {
     const app = (document.querySelector("#app") as any)?.__vue_app__;
     if (app?.config?.globalProperties?.$router) {
@@ -12,7 +13,11 @@ async function spaNavigate(page: Page, path: string) {
     } else {
       window.location.href = `/admin${p.startsWith("/") ? p : "/" + p}`;
     }
-  }, path);
+  }, destinationPath);
+  const urlPattern = destinationPath === "/"
+    ? /\/admin\/?$/
+    : new RegExp(`/admin${destinationPath.replace(/\//g, "\\/")}$`);
+  await page.waitForURL(urlPattern, { timeout: 10_000 });
 }
 
 /** Log in via the username/password form. */
