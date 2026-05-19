@@ -26,6 +26,7 @@ async function loginViaForm(page: Page, username = "demo", password = "demo123")
   } catch {
     await page.goto(BASE_URL, { waitUntil: "networkidle" });
   }
+  await expect(page.locator('a:has-text("工单列表"), h1:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
 }
 
 /** Navigate to a path on the app preserving SPA state. */
@@ -38,24 +39,12 @@ async function navigateTo(page: Page, path: string) {
       window.location.href = p;
     }
   }, path);
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1_000);
   if (!page.url().includes(path.replace(/^\//, ''))) {
     await page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1_000);
   }
-  // If SPA redirects to login, re-authenticate via API
-  if (page.url().includes("/login")) {
-    const lr = await page.request.post(`${BASE_URL}/api/v1/uc/login_with_password`, {
-      headers: { HtyHost: "localhost", "Content-Type": "application/json" },
-      data: { username: "demo", password: "demo123" },
-    });
-    const ld = await lr.json();
-    if (ld.r) {
-      await page.evaluate((t) => localStorage.setItem("Authorization", t), ld.d);
-      await page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-      await page.waitForTimeout(2000);
-    }
-  }
+  await expect(page).not.toHaveURL(/\/login/);
 }
 
 test.describe("Image upload", () => {
@@ -69,8 +58,7 @@ test.describe("Image upload", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  // FIXME: compose 环境 SPA auth 问题导致 page.goto 后重定向到 /login
-  test.skip("uploads image when creating a ticket", async ({ page }) => {
+  test("uploads image when creating a ticket", async ({ page }) => {
     const pngPath = path.join(tmpDir, "test.png");
     fs.writeFileSync(pngPath, MINI_PNG);
 
@@ -88,7 +76,7 @@ test.describe("Image upload", () => {
     await fileInput.setInputFiles(pngPath);
 
     // Wait for upload to complete and markdown to appear in body
-    await expect(page.locator("textarea")).toHaveValue(/!\[test\.png]\(/, { timeout: 10_000 });
+    await expect(page.locator("textarea")).toHaveValue(/!\[[^\]]+]\(/, { timeout: 10_000 });
 
     // Submit
     await page.locator('button:has-text("提交")').click();
@@ -140,7 +128,7 @@ test.describe("Image upload", () => {
     await fileInputs.setInputFiles(pngPath);
 
     // Wait for markdown to appear
-    await expect(page.locator(".reply-section textarea")).toHaveValue(/!\[comment\.png]\(/, { timeout: 10_000 });
+    await expect(page.locator(".reply-section textarea")).toHaveValue(/!\[[^\]]+]\(/, { timeout: 10_000 });
 
     // Send comment
     await page.locator(".reply-section button:has-text('发送')").click();

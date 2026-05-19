@@ -1,6 +1,34 @@
 import { test, expect, type Page } from "@playwright/test";
+import * as crypto from "crypto";
 
 const BASE_URL = "http://localhost:8088";
+
+function generateJwt(): string {
+  const jwtKey = process.env.JWT_KEY || "upctl-dev-jwt-key-change-in-production";
+  const htyToken = {
+    token_id: "e2e-test",
+    hty_id: null,
+    app_id: null,
+    ts: new Date().toISOString().replace(/\.\d+Z$/, ""),
+    roles: [{ role_key: "ADMIN" }],
+    tags: [],
+    current_org_id: null,
+    current_org_role_keys: null,
+    current_department_id: null,
+  };
+  const now = Math.floor(Date.now() / 1000);
+  const payload = { sub: JSON.stringify(htyToken), exp: now + 3600, iat: now };
+  const base64Url = (value: object) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url").replace(/=+$/, "");
+  const header = base64Url({ alg: "HS256", typ: "JWT" });
+  const body = base64Url(payload);
+  const signature = crypto
+    .createHmac("sha256", jwtKey)
+    .update(`${header}.${body}`)
+    .digest("base64url")
+    .replace(/=+$/, "");
+  return `${header}.${body}.${signature}`;
+}
 
 async function loginAndGetJwt(page: Page): Promise<string> {
   await page.goto(`${BASE_URL}/login`);
@@ -9,43 +37,24 @@ async function loginAndGetJwt(page: Page): Promise<string> {
   await page.locator('input[placeholder="密码"]').fill("demo123");
   await page.locator('button:has-text("登录")').click();
   await page.waitForFunction(() => !!window.localStorage.getItem("Authorization"), { timeout: 10_000 });
+  await expect(page.locator('a:has-text("工单列表"), h1:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
   return await page.evaluate(() => window.localStorage.getItem("Authorization") || "");
 }
 
-// FIXME: compose 环境 login_with_password 返回的 JWT 不被 SPA read() 认可，
-// 每次 page.goto('/tickets/new') 后都重定向回 /login。await env fix。
 test.describe("部署环境", () => {
-  test.skip("创建工单时显示部署环境选择器", async ({ page }) => {
+  test("创建工单时显示部署环境选择器", async ({ page }) => {
     const jwt = await loginAndGetJwt(page);
     expect(jwt).toBeTruthy();
 
     // Ensure at least one deploy env exists via API
     const envName = "TestEnv-" + Date.now();
-    await page.request.post(`${BASE_URL}/api/v2/upctl/api/deploy_envs`, {
-      headers: { Authorization: jwt, "Content-Type": "application/json" },
+    const createEnvResponse = await page.request.post(`${BASE_URL}/api/v2/upctl/api/deploy_envs`, {
+      headers: { Authorization: generateJwt(), "Content-Type": "application/json" },
       data: { name: envName, domain: "test.env.com" },
     });
+    expect(createEnvResponse.ok()).toBeTruthy();
 
-    // Navigate to create ticket with retry in case SPA redirects to login
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await page.goto(`${BASE_URL}/tickets/new`, { waitUntil: "domcontentloaded" });
-      await page.waitForTimeout(2000);
-      if (page.url().includes("/login")) {
-        // SPA lost auth — re-login
-        const lr = await page.request.post(`${BASE_URL}/api/v1/uc/login_with_password`, {
-          headers: { HtyHost: "localhost", "Content-Type": "application/json" },
-          data: { username: "demo", password: "demo123" },
-        });
-        const ld = await lr.json();
-        if (ld.r) {
-          await page.evaluate((t) => localStorage.setItem("Authorization", t), ld.d);
-        }
-      } else break;
-    }
-    if (page.url().includes("/login")) {
-      test.skip(true, "无法登录，跳过部署环境测试");
-      return;
-    }
+    await page.locator('a:has-text("新建工单"), button:has-text("新建工单")').click();
 
     // Should show the deploy env section (wait for loading to finish)
     await expect(page.locator("text=关联部署环境")).toBeVisible({ timeout: 10_000 });
