@@ -147,3 +147,36 @@ test.describe("AuthCoreAdmin — User list sorting", () => {
     await expect(statusBtn).toContainText("↓");
   });
 });
+
+test.describe("AuthCoreAdmin — User verify (per-app)", () => {
+  test("waiting tab has no row-level approve/reject buttons", async ({ page }) => {
+    await login(page, "/users");
+    await page.locator('button:has-text("待审核")').click();
+    const rowHeaders = page.locator("div.bg-surface.rounded-lg.shadow-sm.p-3\\.5");
+    const count = await rowHeaders.count();
+    for (let i = 0; i < count; i++) {
+      const row = rowHeaders.nth(i);
+      await expect(row.locator('button:has-text("通过")')).toHaveCount(0);
+      await expect(row.locator('button:has-text("驳回")')).toHaveCount(0);
+    }
+  });
+
+  test("partially registered user shows per-app verify on pending app only", async ({ page }) => {
+    await login(page, "/users");
+    await page.locator('button:has-text("待审核")').click();
+    await expect(page.getByText("待审演示")).toBeVisible({ timeout: 10_000 });
+
+    const userRow = page.locator("div.bg-surface.rounded-lg.shadow-sm.p-3\\.5").filter({ hasText: "待审演示" });
+    await userRow.locator("span").filter({ hasText: "+" }).click();
+
+    const demoAppBlock = page.locator('[data-app-id="demo-app"]');
+    await expect(demoAppBlock.getByText("已认证")).toBeVisible();
+    await expect(demoAppBlock.locator('[data-action="approve-app"]')).toHaveCount(0);
+    await expect(demoAppBlock.locator('[data-action="reject-app"]')).toHaveCount(0);
+
+    const pendingAppBlock = page.locator('[data-app-id="pending-app"]');
+    await expect(pendingAppBlock.getByText("未认证")).toBeVisible();
+    await expect(pendingAppBlock.locator('[data-action="approve-app"]')).toBeEnabled();
+    await expect(pendingAppBlock.locator('[data-action="reject-app"]')).toBeEnabled();
+  });
+});
