@@ -47,11 +47,13 @@ async function login(page: Page, destination?: string) {
 }
 
 test.describe("AuthCoreAdmin — Login", () => {
-  test("compose 默认显示用户名密码，无微信二维码", async ({ page }) => {
+  test("compose 默认仅用户名密码登录页，无微信二维码", async ({ page }) => {
     await page.goto(`${AUTH_ADMIN_URL}/login`, { waitUntil: "networkidle" });
+    await expect(page.getByText("用户名密码登录")).toBeVisible();
     await expect(page.locator('input[placeholder="用户名"]')).toBeVisible();
     await expect(page.locator('input[placeholder="密码"]')).toBeVisible();
     await expect(page.locator("#login-qr iframe")).toHaveCount(0);
+    await expect(page.getByText("请使用微信扫码登录")).toHaveCount(0);
   });
 
   test("demo 用户 ADMIN 登录成功", async ({ page }) => {
