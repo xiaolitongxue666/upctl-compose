@@ -61,6 +61,7 @@ test.describe("AuthCoreAdmin — Login", () => {
 });
 
 test.describe("AuthCoreAdmin — App management", () => {
+  test("navigates to apps page from default user page", async ({ page }) => {
     await login(page);
     await expect(page.locator("h1")).toContainText("用户管理");
     await page.locator('a:has-text("应用管理")').first().click();
