@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """Test that agent prompt content appears exactly once in tmux pane.
 
+This test simulates the send_prompt behavior with activity detection:
+1. Send prompt text via tmux literal mode
+2. Send first Enter to submit
+3. Capture pane twice with a gap to detect if agent started processing
+4. If pane content changes → agent is working → skip second Enter
+5. If no change → send second Enter as fallback safety net
+
 Usage (from upctl-compose root):
   docker compose cp tests/agent_dup_test.py ai-agent:/app/agent_dup_test.py
   docker compose exec -T ai-agent python3 /app/agent_dup_test.py <ticket_num> <jwt_token>
@@ -25,36 +32,22 @@ body_text = issue.get("body", "")
 labels = [l["name"] for l in issue.get("labels", [])]
 state = issue.get("state", "")
 
-# Ensure deepseek-tui is running in the tmux session
-# (simulating what poll_worker.ensure_tmux_session does)
+# Ensure tmux session exists
+SESSION = "deepseek-agent"
 has_session = subprocess.run(
-    ["tmux", "has-session", "-t", "deepseek-agent"],
+    ["tmux", "has-session", "-t", SESSION],
     capture_output=True
 )
 if has_session.returncode != 0:
-    subprocess.run(["tmux", "new-session", "-d", "-s", "deepseek-agent", "-c", "/app/workspace"], check=True)
-    subprocess.run(["tmux", "send-keys", "-t", "deepseek-agent", "deepseek-tui", "Enter"], check=True)
+    subprocess.run(["tmux", "new-session", "-d", "-s", SESSION, "-c", "/app/workspace"], check=True)
+    subprocess.run(["tmux", "send-keys", "-t", SESSION, "deepseek-tui", "Enter"], check=True)
     time.sleep(3)
     print("Started deepseek-tui in new tmux session")
-else:
-    # Check if deepseek-tui is running in the session
-    result = subprocess.run(
-        ["tmux", "capture-pane", "-t", "deepseek-agent", "-p", "-S", "-20"],
-        capture_output=True, text=True
-    )
-    pane = result.stdout
-    if "deepseek" not in pane.lower() and "chat" not in pane.lower() and "?" not in pane.lower():
-        # Session exists but deepseek-tui may not be running; send Ctrl+C then start it
-        subprocess.run(["tmux", "send-keys", "-t", "deepseek-agent", "C-c"], check=True)
-        time.sleep(1)
-        subprocess.run(["tmux", "send-keys", "-t", "deepseek-agent", "deepseek-tui", "Enter"], check=True)
-        time.sleep(3)
-        print("Started deepseek-tui in existing tmux session")
 
-# Extract unique marker from body (set by Playwright test)
+# Extract unique marker from body
 marker = body_text.strip()
 
-# Build prompt (same structure as agent_prompt handler, but with our marker)
+# Build prompt (same structure as agent_prompt handler)
 prompt = f"## 当前工单 #{ticket_num}\n标题: {title}\n状态: {state}\n"
 if labels:
     prompt += f"标签: {', '.join(labels)}\n"
@@ -66,27 +59,56 @@ print(f"MARKER_IN_PROMPT:{marker in prompt}")
 
 # Capture pane BEFORE
 result_before = subprocess.run(
-    ["tmux", "capture-pane", "-t", "deepseek-agent", "-p", "-S", "-200"],
+    ["tmux", "capture-pane", "-t", SESSION, "-p", "-S", "-200"],
     capture_output=True, text=True
 )
 before = result_before.stdout
 print(f"BEFORE_LEN:{len(before)}")
 
-# Send prompt text (literal mode)
-subprocess.run(["tmux", "send-keys", "-l", "-t", "deepseek-agent", "--", prompt], check=True)
+# ── Simulate new send_prompt with activity detection ──
+
+# Step 1: Send prompt text (literal mode)
+subprocess.run(["tmux", "send-keys", "-l", "-t", SESSION, "--", prompt], check=True)
 time.sleep(1)
 
-# Send first Enter
-subprocess.run(["tmux", "send-keys", "-t", "deepseek-agent", "Enter"], check=True)
-time.sleep(0.5)
+# Step 2: Send first Enter
+subprocess.run(["tmux", "send-keys", "-t", SESSION, "Enter"], check=True)
+print("FIRST_ENTER_SENT:true")
 
-# Send second Enter (as send_prompt does)
-subprocess.run(["tmux", "send-keys", "-t", "deepseek-agent", "Enter"], check=True)
+# Step 3: Wait, then detect agent activity via double capture
+time.sleep(2)
+
+first_capture = subprocess.run(
+    ["tmux", "capture-pane", "-t", SESSION, "-p", "-S", "-200"],
+    capture_output=True, text=True
+).stdout
+
+time.sleep(1.5)
+
+second_capture = subprocess.run(
+    ["tmux", "capture-pane", "-t", SESSION, "-p", "-S", "-200"],
+    capture_output=True, text=True
+).stdout
+
+agent_working = first_capture != second_capture
+print(f"AGENT_WORKING:{agent_working}")
+print(f"FIRST_CAPTURE_LEN:{len(first_capture)}")
+print(f"SECOND_CAPTURE_LEN:{len(second_capture)}")
+print(f"CURRENT_EXECUTABLE:{second_capture}")
+
+if not agent_working:
+    # Fallback: send second Enter
+    time.sleep(1)
+    subprocess.run(["tmux", "send-keys", "-t", SESSION, "Enter"], check=True)
+    print("SECOND_ENTER_SENT:true (fallback — no agent activity detected)")
+else:
+    print("SECOND_ENTER_SENT:false (agent is working, second Enter skipped)")
+
 time.sleep(2)
 
 # Capture pane AFTER
 result_after = subprocess.run(
-    ["tmux", "capture-pane", "-t", "deepseek-agent", "-p", "-S", "-200"],
+    ["tmux", "capture-pane", "-t", SESSION, "-p", "-S", "-200"],
     capture_output=True, text=True
 )
 after = result_after.stdout
@@ -95,13 +117,18 @@ after = result_after.stdout
 new_content = after[len(before):] if len(after) > len(before) else after
 print(f"NEW_CONTENT_LEN:{len(new_content)}")
 
-# Count marker and ticket ref in new content
+# Count marker in new content
 marker_count = new_content.count(marker)
-ticket_ref_count = new_content.count(f"#{ticket_num}")
-title_count = new_content.count(title)
-
 print(f"MARKER_COUNT:{marker_count}")
-print(f"TICKET_REF_COUNT:{ticket_ref_count}")
-print(f"TITLE_COUNT:{title_count}")
 print(f"NEW_CONTENT_PREVIEW:{new_content[:300]!r}")
-print("DONE")
+
+# The marker should appear at most once in the new content.
+# 0 = agent didn't echo prompt (normal for production TUI)
+# 1 = prompt visible in pane (normal for local shell fallback)
+# >1 = duplication detected
+if marker_count > 1:
+    print(f"DUPLICATION_DETECTED:true (marker appears {marker_count} times)")
+    sys.exit(1)
+else:
+    print(f"DUPLICATION_DETECTED:false")
+    print("DONE")
