@@ -72,8 +72,8 @@ test.describe("Ticket detail — admin actions", () => {
     await expect(approveBtn).toBeEnabled();
     await expect(progressBtn).toBeEnabled();
 
-    // Verify the reply-actions-bar is present
-    await expect(page.locator(".reply-actions-bar")).toBeVisible();
+    // Verify the actions-bar is present
+    await expect(page.locator(".actions-bar")).toBeVisible();
   });
 
   test("approve button adds approved label and hides itself", async ({ page }) => {
