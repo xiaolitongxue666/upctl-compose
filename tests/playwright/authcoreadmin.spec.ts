@@ -163,7 +163,7 @@ test.describe("AuthCoreAdmin — User verify (per-app)", () => {
 
   test("partially registered user shows per-app verify on pending app only", async ({ page }) => {
     await login(page, "/users");
-    await page.locator('button:has-text("待审核")').click();
+    await page.locator('button:has-text("已认证")').click();
     await expect(page.getByText("待审演示")).toBeVisible({ timeout: 10_000 });
 
     const userRow = page.locator("div.bg-surface.rounded-lg.shadow-sm.p-3\\.5").filter({ hasText: "待审演示" });
