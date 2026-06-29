@@ -54,7 +54,8 @@ test.describe("Login page", () => {
   test("renders the login page with title and form", async ({ page }) => {
     await page.goto(`${BASE_URL}/login`);
     await expect(page.locator("h1")).toContainText("工单管理系统");
-    await expect(page.locator(".login-card")).toBeVisible();
+    await expect(page.locator('input[placeholder="用户名"]')).toBeVisible();
+    await expect(page.locator('button:has-text("登录")')).toBeVisible();
   });
 
   test("redirects unauthenticated users to /login", async ({ page }) => {
@@ -73,7 +74,8 @@ test.describe("Login page", () => {
     await loginViaForm(page);
     // After successful login should redirect to /
     await expect(page).not.toHaveURL(/\/login/);
-    await expect(page.locator("h1")).toContainText("工单列表");
+    // Check for header nav to confirm logged-in state (no h1 in ticket list)
+    await expect(page.locator('a:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
   });
 });
 
@@ -81,8 +83,8 @@ test.describe("Ticket list", () => {
   test("loads and shows tickets with valid login", async ({ page }) => {
     await loginViaForm(page);
     await page.goto(`${BASE_URL}/`);
-    await expect(page.locator("h1")).toContainText("工单列表");
-    // Should not redirect back to /login
+    // Should show header nav, not redirect back to /login
+    await expect(page.locator('a:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
     await expect(page).not.toHaveURL(/\/login/);
   });
 });

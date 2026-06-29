@@ -61,7 +61,7 @@ test.describe("Full pipeline", () => {
             "Content-Type": "application/json",
             Accept: "application/json",
           },
-          body: JSON.stringify({ title, body, labels: ["approved"] }),
+          body: JSON.stringify({ title, body, labels: ["approved", "urgent"] }),
         });
         const data = await resp.json();
         return data?.d?.number || 0;

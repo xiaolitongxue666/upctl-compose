@@ -72,8 +72,8 @@ test.describe("Ticket detail — admin actions", () => {
     await expect(approveBtn).toBeEnabled();
     await expect(progressBtn).toBeEnabled();
 
-    // Verify the reply-actions-bar is present
-    await expect(page.locator(".reply-actions-bar")).toBeVisible();
+    // Verify the actions-bar is present
+    await expect(page.locator(".actions-bar")).toBeVisible();
   });
 
   test("approve button adds approved label and hides itself", async ({ page }) => {
@@ -153,6 +153,51 @@ test.describe("Ticket detail — admin actions", () => {
     // Both approved and in_progress labels should be visible
     await expect(page.locator(".label").filter({ hasText: "approved" })).toBeVisible();
     await expect(page.locator(".label").filter({ hasText: "in_progress" })).toBeVisible();
+  });
+
+  test("close ticket button closes the ticket", async ({ page }) => {
+    // Create an open ticket via API
+    const title = `E2E close test ${Date.now()}`;
+    const ticketNum: number = await page.evaluate(
+      async ({ url, jwt, title }) => {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: jwt,
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({ title, body: "Test body for close" }),
+        });
+        const data = await resp.json();
+        return data?.d?.number || 0;
+      },
+      { url: `${BASE_URL}/api/v2/upctl/api/tickets`, jwt, title },
+    );
+    expect(ticketNum).toBeGreaterThan(0);
+
+    // Navigate to ticket detail (SPA to preserve roles)
+    await spaNavigate(page, `/tickets/${ticketNum}`);
+    await expect(page.locator("h1")).toContainText(`#${ticketNum}`);
+
+    // Click close button
+    const closeBtn = page.locator('.btn-close:has-text("关闭工单")');
+    await expect(closeBtn).toBeVisible();
+
+    // Handle confirm dialog
+    page.on('dialog', async (dialog) => {
+      await dialog.accept();
+    });
+    await closeBtn.click();
+
+    // Wait for ticket to become closed — status text should change
+    await expect(page.locator(".ticket-meta strong.closed")).toContainText("已关闭", { timeout: 10_000 });
+
+    // Close button should disappear after close
+    await expect(closeBtn).not.toBeVisible();
+
+    // Verify reply section is gone (closed tickets shouldn't show reply)
+    await expect(page.locator(".reply-section")).not.toBeVisible();
   });
 
   test("non-admin user cannot see manage buttons", async ({ page }) => {

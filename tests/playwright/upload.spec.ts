@@ -26,6 +26,7 @@ async function loginViaForm(page: Page, username = "demo", password = "demo123")
   } catch {
     await page.goto(BASE_URL, { waitUntil: "networkidle" });
   }
+  await expect(page.locator('a:has-text("工单列表"), h1:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
 }
 
 /** Navigate to a path on the app preserving SPA state. */
@@ -38,13 +39,12 @@ async function navigateTo(page: Page, path: string) {
       window.location.href = p;
     }
   }, path);
-  // Wait for SPA to render after navigation
-  await page.waitForTimeout(2000);
-  // Fallback: if SPA nav didn't work, try direct goto
+  await page.waitForTimeout(1_000);
   if (!page.url().includes(path.replace(/^\//, ''))) {
     await page.goto(`${BASE_URL}${path}`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(1_000);
   }
+  await expect(page).not.toHaveURL(/\/login/);
 }
 
 test.describe("Image upload", () => {
@@ -64,7 +64,8 @@ test.describe("Image upload", () => {
 
     await loginViaForm(page);
     await navigateTo(page, "/tickets/new");
-    await expect(page.locator("h1")).toContainText("新建工单");
+    // Page should show create ticket form (no h1 with page title)
+    await expect(page.locator('input[placeholder="请输入工单标题"]')).toBeVisible({ timeout: 10_000 });
 
     // Fill title
     const title = `E2E upload test ${Date.now()}`;
@@ -75,7 +76,7 @@ test.describe("Image upload", () => {
     await fileInput.setInputFiles(pngPath);
 
     // Wait for upload to complete and markdown to appear in body
-    await expect(page.locator("textarea")).toHaveValue(/!\[image]\(/, { timeout: 10_000 });
+    await expect(page.locator("textarea")).toHaveValue(/!\[[^\]]+]\(/, { timeout: 10_000 });
 
     // Submit
     await page.locator('button:has-text("提交")').click();
@@ -127,7 +128,7 @@ test.describe("Image upload", () => {
     await fileInputs.setInputFiles(pngPath);
 
     // Wait for markdown to appear
-    await expect(page.locator(".reply-section textarea")).toHaveValue(/!\[image]\(/, { timeout: 10_000 });
+    await expect(page.locator(".reply-section textarea")).toHaveValue(/!\[[^\]]+]\(/, { timeout: 10_000 });
 
     // Send comment
     await page.locator(".reply-section button:has-text('发送')").click();
@@ -163,6 +164,7 @@ test.describe("Image upload", () => {
     // Should NOT add image markdown
     await page.waitForTimeout(500);
     const bodyText = await page.locator("textarea").inputValue();
-    expect(bodyText).not.toContain("![image](");
+    expect(bodyText).not.toContain("![fail.png](");
+    await expect(page.locator("text=Upload failed")).toBeVisible();
   });
 });

@@ -5,6 +5,7 @@ const AUTH_ADMIN_URL = `${BASE}/admin`;
 
 /** Navigate using Vue Router (SPA) to preserve user roles in the store. */
 async function spaNavigate(page: Page, path: string) {
+  const destinationPath = path.startsWith("/") ? path : "/" + path;
   await page.evaluate((p) => {
     const app = (document.querySelector("#app") as any)?.__vue_app__;
     if (app?.config?.globalProperties?.$router) {
@@ -12,7 +13,11 @@ async function spaNavigate(page: Page, path: string) {
     } else {
       window.location.href = `/admin${p.startsWith("/") ? p : "/" + p}`;
     }
-  }, path);
+  }, destinationPath);
+  const urlPattern = destinationPath === "/"
+    ? /\/admin\/?$/
+    : new RegExp(`/admin${destinationPath.replace(/\//g, "\\/")}$`);
+  await page.waitForURL(urlPattern, { timeout: 10_000 });
 }
 
 /** Log in via the username/password form. */
@@ -33,18 +38,34 @@ async function login(page: Page, destination?: string) {
   if (!currentUrl.includes("/admin")) {
     await page.goto(`${AUTH_ADMIN_URL}/`, { waitUntil: "networkidle" });
   }
-  // Confirm dashboard has fully rendered with its h1
-  await expect(page.locator("h1")).toContainText("AuthCore");
+  // Confirm the default admin page has fully rendered.
+  await expect(page.locator("h1")).toContainText("用户管理");
   // Navigate to desired page via SPA to preserve user roles in the store
   if (destination) {
     await spaNavigate(page, destination);
   }
 }
 
-test.describe("AuthCoreAdmin — App management", () => {
-  test("navigates to apps page from dashboard", async ({ page }) => {
+test.describe("AuthCoreAdmin — Login", () => {
+  test("compose 默认仅用户名密码登录页，无微信二维码", async ({ page }) => {
+    await page.goto(`${AUTH_ADMIN_URL}/login`, { waitUntil: "networkidle" });
+    await expect(page.getByText("用户名密码登录")).toBeVisible();
+    await expect(page.locator('input[placeholder="用户名"]')).toBeVisible();
+    await expect(page.locator('input[placeholder="密码"]')).toBeVisible();
+    await expect(page.locator("#login-qr iframe")).toHaveCount(0);
+    await expect(page.getByText("请使用微信扫码登录")).toHaveCount(0);
+  });
+
+  test("demo 用户 ADMIN 登录成功", async ({ page }) => {
     await login(page);
-    await expect(page.locator("h1")).toContainText("AuthCore");
+    await expect(page.locator("h1")).toContainText("用户管理");
+  });
+});
+
+test.describe("AuthCoreAdmin — App management", () => {
+  test("navigates to apps page from default user page", async ({ page }) => {
+    await login(page);
+    await expect(page.locator("h1")).toContainText("用户管理");
     await page.locator('a:has-text("应用管理")').first().click();
     await expect(page).toHaveURL(/\/apps/);
   });
@@ -58,9 +79,9 @@ test.describe("AuthCoreAdmin — App management", () => {
   test("opens and closes create app modal", async ({ page }) => {
     await login(page, "/apps");
     await page.locator('button:has-text("新增应用")').click();
-    await expect(page.locator(".dialog h3")).toContainText("新增应用");
-    await page.locator('.dialog button:has-text("取消")').click();
-    await expect(page.locator(".dialog")).not.toBeVisible();
+    await expect(page.locator("h3:has-text('新增应用')")).toBeVisible({ timeout: 5000 });
+    await page.locator('button:has-text("取消")').click();
+    await expect(page.locator("h3:has-text('新增应用')")).not.toBeVisible();
   });
 });
 
@@ -68,16 +89,94 @@ test.describe("AuthCoreAdmin — Navigation", () => {
   test("navigation links work between pages", async ({ page }) => {
     await login(page);
 
-    await page.locator('nav a:has-text("用户")').click();
+    await page.locator('nav a:has-text("用户管理")').click();
     await expect(page).toHaveURL(/\/users/);
     await expect(page.locator("h1")).toContainText("用户管理");
 
-    await page.locator('nav a:has-text("应用")').click();
+    await page.locator('nav a:has-text("应用管理")').click();
     await expect(page).toHaveURL(/\/apps/);
     await expect(page.locator("h1")).toContainText("应用管理");
 
-    // Apps page has no nav — use SPA navigation to return to dashboard
+    // Use SPA navigation to return to the default admin page.
     await spaNavigate(page, "/");
     await expect(page).toHaveURL(/\/admin\/?$/);
+    await expect(page.locator("h1")).toContainText("用户管理");
+  });
+});
+
+test.describe("AuthCoreAdmin — User list sorting", () => {
+  test("shows sort buttons on users page", async ({ page }) => {
+    await login(page, "/users");
+    await expect(page.locator("h1")).toContainText("用户管理");
+    await expect(page.locator('button:has-text("姓名")')).toBeVisible();
+    await expect(page.locator('button:has-text("创建时间")')).toBeVisible();
+    await expect(page.locator('button:has-text("审核状态")')).toBeVisible();
+  });
+
+  test("sort by name toggles direction", async ({ page }) => {
+    await login(page, "/users");
+    // Default sort is by name ascending
+    const nameBtn = page.locator('button:has-text("姓名")');
+    await expect(nameBtn).toBeVisible();
+    // Click to toggle to descending
+    await nameBtn.click();
+    // The button should show ↓ after toggle
+    await expect(nameBtn).toContainText("↓");
+    // Click again to go back to ascending
+    await nameBtn.click();
+    await expect(nameBtn).toContainText("↑");
+  });
+
+  test("sort by created_at changes order", async ({ page }) => {
+    await login(page, "/users");
+    const timeBtn = page.locator('button:has-text("创建时间")');
+    await timeBtn.click();
+    await expect(timeBtn).toContainText("↑");
+    // Toggle to descending
+    await timeBtn.click();
+    await expect(timeBtn).toContainText("↓");
+  });
+
+  test("sort by status toggles direction", async ({ page }) => {
+    await login(page, "/users");
+    const statusBtn = page.locator('button:has-text("审核状态")');
+    await statusBtn.click();
+    await expect(statusBtn).toContainText("↑");
+    // Toggle to descending
+    await statusBtn.click();
+    await expect(statusBtn).toContainText("↓");
+  });
+});
+
+test.describe("AuthCoreAdmin — User verify (per-app)", () => {
+  test("waiting tab has no row-level approve/reject buttons", async ({ page }) => {
+    await login(page, "/users");
+    await page.locator('button:has-text("待审核")').click();
+    const rowHeaders = page.locator("div.bg-surface.rounded-lg.shadow-sm.p-3\\.5");
+    const count = await rowHeaders.count();
+    for (let i = 0; i < count; i++) {
+      const row = rowHeaders.nth(i);
+      await expect(row.locator('button:has-text("通过")')).toHaveCount(0);
+      await expect(row.locator('button:has-text("驳回")')).toHaveCount(0);
+    }
+  });
+
+  test("partially registered user shows per-app verify on pending app only", async ({ page }) => {
+    await login(page, "/users");
+    await page.locator('button:has-text("已认证")').click();
+    await expect(page.getByText("待审演示")).toBeVisible({ timeout: 10_000 });
+
+    const userRow = page.locator("div.bg-surface.rounded-lg.shadow-sm.p-3\\.5").filter({ hasText: "待审演示" });
+    await userRow.locator("span").filter({ hasText: "+" }).click();
+
+    const demoAppBlock = page.locator('[data-app-id="demo-app"]');
+    await expect(demoAppBlock.getByText("已认证")).toBeVisible();
+    await expect(demoAppBlock.locator('[data-action="approve-app"]')).toHaveCount(0);
+    await expect(demoAppBlock.locator('[data-action="reject-app"]')).toHaveCount(0);
+
+    const pendingAppBlock = page.locator('[data-app-id="pending-app"]');
+    await expect(pendingAppBlock.getByText("未认证")).toBeVisible();
+    await expect(pendingAppBlock.locator('[data-action="approve-app"]')).toBeEnabled();
+    await expect(pendingAppBlock.locator('[data-action="reject-app"]')).toBeEnabled();
   });
 });

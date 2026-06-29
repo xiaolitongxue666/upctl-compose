@@ -29,6 +29,8 @@ services:
   authcore:
     build:
       context: ./authcore
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       postgres:
         condition: service_healthy
@@ -71,6 +73,8 @@ services:
   upctl-web:
     build:
       context: ./upctl-web
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       - authcore
       - upctl-svc
@@ -80,6 +84,8 @@ services:
   authcoreadmin:
     build:
       context: ./authcoreadmin
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
     depends_on:
       - authcore
     ports:
@@ -87,7 +93,7 @@ services:
 
   ai-agent:
     build:
-      context: ./ai-agent
+      context: ./upctl-agent/ai-agent
     depends_on:
       upctl-svc:
         condition: service_started

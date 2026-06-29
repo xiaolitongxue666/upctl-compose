@@ -93,6 +93,17 @@ test.describe("Agent endpoint auth", () => {
 test.describe("Agent prompt assembly (dry_run)", () => {
   const jwt = generateJwt([{ role_key: "ADMIN" }]);
 
+  test.beforeEach(async () => {
+    const resp = await fetch(`${APi_BASE}/config/memory-dir`, {
+      method: "PUT",
+      headers: { Authorization: jwt, "Content-Type": "application/json" },
+      body: JSON.stringify({ memory_dir: "/app/data" }),
+    });
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.r).toBe(true);
+  });
+
   test("assembled prompt contains claude_prompt_prefix and memory instruction", async () => {
     const userPrompt = "Implement feature X";
     const resp = await fetch(`${APi_BASE}/agent/prompt`, {

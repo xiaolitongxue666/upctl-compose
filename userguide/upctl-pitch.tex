@@ -1,9 +1,8 @@
 \documentclass[12pt,aspectratio=169,utf8]{beamer}
 
+% ctex fontset=auto 自动适配系统字体: macOS 用 ST 系列, Linux 用 Fandol 系列
 \usepackage{ctex}
-\setCJKmainfont{Songti SC}
-\setCJKsansfont{Heiti SC}
-\setCJKmonofont{Heiti SC}
+\IfFontExistsTF{Heiti SC}{\setCJKmonofont{Heiti SC}}{}  % 等宽字体: macOS 用黑体, 否则用 ctex 默认
 
 \usepackage{graphicx}
 \usepackage{xcolor}
@@ -344,7 +343,7 @@
 ]
   \node[svc, fill=green!15] (user) at (-7, 4) {用户浏览器};
 
-  \draw[dashed, rounded corners, thick, gray] (-8.5, 3) rectangle (8.5, -3);
+  \draw[dashed, rounded corners, thick, gray] (-8.5, 3) rectangle (8.5, -4);
   \node[font=\tiny, gray] at (8, 2.7) {upctl-compose 容器网络};
 
   % Row 1: web at top center
@@ -357,12 +356,12 @@
   \node[svc, fill=orange!15] (auth) at (-5.5, -1) {authcore};
   \node[svc, fill=purple!15] (svc) at (-1.5, -1) {upctl-svc};
   \node[svc, fill=teal!15] (gitea) at (2.5, -1) {Gitea};
-  \node[svc, fill=gray!15] (redis) at (6, -1) {redis};
-
   % Row 4: data / workers
-  \node[svc, fill=yellow!15] (pg) at (-5.5, -2.5) {PostgreSQL};
-  \node[svc, fill=red!15] (ai) at (2.5, -2.5) {ai-agent};
-  \node[draw, thick, rounded corners, fill=cyan!10, font=\tiny] (ds) at (6, -2.5) {DeepSeek API};
+  \node[svc, fill=gray!15] (redis) at (-1.5, -2.7) {redis};
+  \node[svc, fill=yellow!15] (pg-auth) at (-5.5, -2.7) {PostgreSQL};
+  \node[svc, fill=red!15] (ai) at (2.5, -2.7) {ai-agent};
+  \node[svc, fill=yellow!15] (pg-gitea) at (2.5, -1.85) {PostgreSQL};
+  \node[draw, thick, rounded corners, fill=cyan!10, font=\tiny] (ds) at (6, -2.7) {DeepSeek API};
 
   % Arrows — user → web → nginx
   \draw[->,thick] (user) -- (-3.5, 4) |- (nginx);
@@ -373,23 +372,23 @@
   \draw[->,thick] (nginx) -- (svc);
   \draw[->,thick] (nginx) -- (0.5, 0.5) -- (2.5, 0.5) -- (gitea);
   \draw[->,thick] (svc) -- (gitea);
-  \draw[->,thick] (svc) -- (1.5, -1) -- (6, -1) -- (redis);
+  \draw[->,thick] (svc) -- (redis);
 
   % Arrows — auth ↔ pg, gitea ↔ pg
-  \draw[->,thick] (auth) -- (pg);
-  \draw[->,thick] (gitea) |- (pg);
+  \draw[->,thick] (auth) -- (pg-auth);
+  \draw[->,thick] (gitea) -- (pg-gitea);
 
   % Arrows — ai ↔ svc, ai → ds
-  \draw[->,thick] (ai) -- (0.5, -2.5) |- (svc);
+  \draw[->,thick] (ai) -- (0.5, -2.7) |- (svc);
   \draw[->,thick] (ai) -- (ds);
 
-  % Port labels
-  \node[font=\tiny, right] at ([xshift=0.3cm]nginx.east) {:8088};
-  \node[font=\tiny, right] at ([xshift=0.3cm]auth.east) {:3000};
-  \node[font=\tiny, right] at ([xshift=0.3cm]svc.east) {:3005};
-  \node[font=\tiny, right] at ([xshift=0.3cm]gitea.east) {:3001};
-  \node[font=\tiny, right] at ([xshift=0.3cm]redis.east) {:6379};
-  \node[font=\tiny, right] at ([xshift=0.3cm]pg.east) {:5432};
+  % Port labels — 放在 block 右下角，避免与箭头重叠
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]nginx.south east) {:8088};
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]auth.south east) {:3000};
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]svc.south east) {:3005};
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]gitea.south east) {:3001};
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]redis.south east) {:6379};
+  \node[font=\tiny, anchor=north west] at ([xshift=0.05cm]pg-auth.south east) {:5432};
 \end{tikzpicture}
 \end{center}
 
@@ -476,20 +475,22 @@
       \tikzset{block/.style={rectangle, draw, rounded corners, minimum width=1.5cm, minimum height=0.4cm, align=center, font=\tiny}};
       
       \node[block, fill=red!20] (ai) {ai-agent};
-      \node[block, fill=purple!20, right=of ai] (svc) {upctl-svc};
+      \node[block, fill=green!20, right=of ai] (web) {upctl-web};
+      \node[block, fill=purple!20, right=of web] (svc) {upctl-svc};
       \node[block, fill=teal!20, right=of svc] (gitea) {Gitea};
       \node[block, fill=cyan!20, right=of gitea] (ds) {DeepSeek API};
 
       % Row 1 (top offset +0.4): polling forward
-      \draw[->, thick] ([yshift=0.4cm]ai.east) -- node[above] {每 5m 轮询} ([yshift=0.4cm]svc.west);
-      \draw[->, thick] ([yshift=0.4cm]svc.east) -- node[above] {查 approved 工单} ([yshift=0.4cm]gitea.west);
+      \draw[->, thick] ([yshift=0.4cm]ai.east) -- node[above] {每 5m 轮询} ([yshift=0.4cm]web.west);
+      \draw[->, thick] ([yshift=0.4cm]web.east) -- node[above] {查 approved 工单} ([yshift=0.4cm]svc.west);
+      \draw[->, thick] ([yshift=0.4cm]svc.east) -- node[above] {代理查询} ([yshift=0.4cm]gitea.west);
 
-      % Row 1 return (midline): dashed polling loop back
-      \draw[->, thick, dashed] ([yshift=0cm]gitea.west) -- ([yshift=0cm]svc.east);
-      \draw[->, thick, dashed] ([yshift=0cm]svc.west) -- ([yshift=0cm]ai.east);
+      % Return path: 单条虚线从 gitea 上方回到 ai，替代原有中线返回
+      \draw[->, thick, dashed] ([yshift=0.8cm]gitea.north) -- node[above] {无新工单 → 继续轮询} ([yshift=0.8cm]ai.north);
 
       % Row 2 (bottom offset -0.4): processing forward
-      \draw[->, thick] ([yshift=-0.4cm]ai.east) -- node[below] {加 in\_progress} ([yshift=-0.4cm]svc.west);
+      \draw[->, thick] ([yshift=-0.4cm]ai.east) -- node[below] {触发处理} ([yshift=-0.4cm]web.west);
+      \draw[->, thick] ([yshift=-0.4cm]web.east) -- node[below] {加 in\_progress} ([yshift=-0.4cm]svc.west);
       \draw[->, thick] ([yshift=-0.4cm]svc.east) -- node[below] {调用 API} ([yshift=-0.4cm]gitea.west);
       \draw[->, thick] ([yshift=-0.4cm]gitea.east) -- node[below] {发送工单} (ds);
 

@@ -77,3 +77,31 @@ SELECT gen_random_uuid()::text, 'root-user', 'root-app', 'root', null, true, now
 WHERE NOT EXISTS (
   SELECT 1 FROM user_app_info WHERE username = 'root' AND app_id = 'root-app'
 );
+
+-- 11. Second app for per-app verify UI tests
+INSERT INTO hty_apps (app_id, domain, app_status, app_desc)
+SELECT 'pending-app', 'pending.localhost', 'ACTIVE', 'Pending verify demo app'
+WHERE NOT EXISTS (SELECT 1 FROM hty_apps WHERE app_id = 'pending-app');
+
+INSERT INTO apps_roles (the_id, app_id, role_id)
+SELECT gen_random_uuid()::text, 'pending-app', 'demo-admin-role'
+WHERE NOT EXISTS (
+  SELECT 1 FROM apps_roles WHERE app_id = 'pending-app' AND role_id = 'demo-admin-role'
+);
+
+-- 12. User registered on demo-app but pending on pending-app (partial verify scenario)
+INSERT INTO hty_users (hty_id, union_id, enabled, created_at, real_name)
+SELECT 'pending-user', 'pending-demo', true, now(), '待审演示'
+WHERE NOT EXISTS (SELECT 1 FROM hty_users WHERE hty_id = 'pending-user');
+
+INSERT INTO user_app_info (id, hty_id, app_id, username, password, is_registered, created_at)
+SELECT gen_random_uuid()::text, 'pending-user', 'demo-app', 'pending-demo', 'demo123', true, now()
+WHERE NOT EXISTS (
+  SELECT 1 FROM user_app_info WHERE hty_id = 'pending-user' AND app_id = 'demo-app'
+);
+
+INSERT INTO user_app_info (id, hty_id, app_id, username, password, is_registered, created_at)
+SELECT gen_random_uuid()::text, 'pending-user', 'pending-app', 'pending-demo2', 'demo123', false, now()
+WHERE NOT EXISTS (
+  SELECT 1 FROM user_app_info WHERE hty_id = 'pending-user' AND app_id = 'pending-app'
+);

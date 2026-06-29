@@ -1,9 +1,8 @@
 \documentclass[10pt,aspectratio=169,utf8]{beamer}
 
+% ctex fontset=auto 自动适配系统字体: macOS 用 ST 系列, Linux 用 Fandol 系列
 \usepackage{ctex}
-\setCJKmainfont{Noto Serif CJK SC}
-\setCJKsansfont{Noto Sans CJK SC}
-\setCJKmonofont{Noto Sans CJK SC}
+\IfFontExistsTF{Heiti SC}{\setCJKmonofont{Heiti SC}}{}  % 等宽字体: macOS 用黑体, 否则用 ctex 默认
 
 \usepackage{graphicx}
 \usepackage{xcolor}

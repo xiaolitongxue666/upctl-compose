@@ -24,6 +24,11 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(|| async { "upctl-svc" }))
+        // Current user (JWT)
+        .route(
+            "/api/v2/upctl/api/current_user",
+            get(handlers::current_user),
+        )
         // Ticket Gitea proxy
         .route(
             "/api/v2/upctl/api/tickets",
@@ -71,6 +76,14 @@ async fn main() -> anyhow::Result<()> {
             "/api/v2/upctl/api/projects/{id}",
             patch(handlers::update_project).delete(handlers::delete_project),
         )
+        .route(
+            "/api/v2/upctl/api/deploy_envs",
+            get(handlers::list_deploy_envs).post(handlers::create_deploy_env),
+        )
+        .route(
+            "/api/v2/upctl/api/deploy_envs/{id}",
+            patch(handlers::update_deploy_env).delete(handlers::delete_deploy_env),
+        )
         // Agent / tmux endpoints
         .route(
             "/api/v2/upctl/api/tmux/{session}",
@@ -79,6 +92,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v2/upctl/api/tmux/{session}/send",
             post(handlers::agent_send_keys),
+        )
+        .route(
+            "/api/v2/upctl/api/tickets/{id}/emergency-stop",
+            post(handlers::emergency_stop_ticket),
         )
         .route(
             "/api/v2/upctl/api/agent/prompt",

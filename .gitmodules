@@ -1,0 +1,3 @@
+[submodule "upctl-agent"]
+	path = upctl-agent
+	url = https://github.com/alchemy-studio/upctl-agent.git

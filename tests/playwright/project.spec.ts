@@ -49,6 +49,7 @@ async function login(page: Page) {
   } catch {
     await page.goto(BASE_URL, { waitUntil: "networkidle" });
   }
+  await expect(page.locator('a:has-text("工单列表"), h1:has-text("工单列表")')).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe("Project management API", () => {
@@ -130,39 +131,34 @@ test.describe("Project management page — UI flow", () => {
     await login(page);
     await page.locator('a:has-text("项目管理")').click();
     await expect(page).toHaveURL(/\/projects/);
-    await expect(page.locator("h1")).toContainText("项目管理");
+    await expect(page.locator('button:has-text("← 返回")')).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('button:has-text("新建项目")')).toBeVisible();
   });
 
   test("opens and closes create modal", async ({ page }) => {
     await login(page);
     await page.goto(`${BASE_URL}/projects`);
     await page.locator('button:has-text("新建项目")').click();
-    await expect(page.locator(".dialog h3")).toContainText("新建项目");
-    await page.locator('.dialog button:has-text("取消")').click();
-    await expect(page.locator(".dialog")).not.toBeVisible();
+    await expect(page.locator("h3:has-text('新建项目')")).toBeVisible({ timeout: 5000 });
+    await page.locator('button:has-text("取消")').click();
+    await expect(page.locator("h3:has-text('新建项目')")).not.toBeVisible();
   });
 
   test("creates a full project via modal", async ({ page }) => {
     await login(page);
     await page.goto(`${BASE_URL}/projects`);
 
-    // Open create modal
     await page.locator('button:has-text("新建项目")').click();
-    await expect(page.locator(".dialog h3")).toContainText("新建项目");
+    await expect(page.locator("h3:has-text('新建项目')")).toBeVisible({ timeout: 5000 });
 
-    // Fill form
     const projectName = `E2E Project ${Date.now()}`;
-    await page.locator('.dialog input[placeholder="如 upctl-svc"]').fill(projectName);
-    await page.locator('.dialog input[placeholder="https://github.com/..."]').fill("https://github.com/e2e/test-repo");
-    await page.locator('.dialog textarea').fill("# E2E Test\n\nTest memory doc content");
+    await page.locator('input[placeholder="如 upctl-svc"]').fill(projectName);
+    await page.locator('input[placeholder="https://github.com/..."]').fill("https://github.com/e2e/test-repo");
+    await page.locator('textarea').fill("# E2E Test\n\nTest memory doc content");
 
-    // Submit
-    await page.locator('.dialog button:has-text("保存")').click();
+    await page.locator('button:has-text("保存")').click();
+    await expect(page.locator("h3:has-text('新建项目')")).not.toBeVisible();
 
-    // Modal should close
-    await expect(page.locator(".dialog")).not.toBeVisible();
-
-    // Project should appear in the list
     const projectCard = page.locator(".project-card").filter({ hasText: projectName });
     await expect(projectCard).toBeVisible();
     await expect(projectCard).toContainText("https://github.com/e2e/test-repo");
@@ -172,32 +168,26 @@ test.describe("Project management page — UI flow", () => {
     await login(page);
     await page.goto(`${BASE_URL}/projects`);
 
-    // Create a project first
     const projectName = `E2E Edit Test ${Date.now()}`;
     await page.locator('button:has-text("新建项目")').click();
-    await page.locator('.dialog input[placeholder="如 upctl-svc"]').fill(projectName);
-    await page.locator('.dialog button:has-text("保存")').click();
-    await expect(page.locator(".dialog")).not.toBeVisible();
+    await page.locator('input[placeholder="如 upctl-svc"]').fill(projectName);
+    await page.locator('button:has-text("保存")').click();
+    await expect(page.locator("h3:has-text('新建项目')")).not.toBeVisible();
     const editCard = page.locator(".project-card").filter({ hasText: projectName });
     await expect(editCard).toBeVisible();
 
-    // Click edit button within this project card
     await editCard.locator('button:has-text("编辑")').click();
-    await expect(page.locator(".dialog h3")).toContainText("编辑项目");
+    await expect(page.locator("h3:has-text('编辑项目')")).toBeVisible({ timeout: 5000 });
 
-    // Modify the name
     const updatedName = projectName + " (edited)";
-    const input = page.locator('.dialog input[placeholder="如 upctl-svc"]');
+    const input = page.locator('input[placeholder="如 upctl-svc"]');
     await input.clear();
     await input.fill(updatedName);
 
-    // Save
-    await page.locator('.dialog button:has-text("保存")').click();
-    await expect(page.locator(".dialog")).not.toBeVisible();
+    await page.locator('button:has-text("保存")').click();
+    await expect(page.locator("h3:has-text('编辑项目')")).not.toBeVisible();
 
-    // Should show updated name
     await expect(page.locator(".project-card").filter({ hasText: updatedName })).toBeVisible();
-    // Card with original name only (not substring of updated name)
     await expect(page.locator(`.project-card:has-text("${projectName}")`).filter({ hasNotText: "(edited)" })).toHaveCount(0);
   });
 
@@ -205,40 +195,25 @@ test.describe("Project management page — UI flow", () => {
     await login(page);
     await page.goto(`${BASE_URL}/projects`);
 
-    // Create a project first
     const projectName = `E2E Delete Test ${Date.now()}`;
     await page.locator('button:has-text("新建项目")').click();
-    await page.locator('.dialog input[placeholder="如 upctl-svc"]').fill(projectName);
-    await page.locator('.dialog button:has-text("保存")').click();
-    await expect(page.locator(".dialog")).not.toBeVisible();
+    await page.locator('input[placeholder="如 upctl-svc"]').fill(projectName);
+    await page.locator('button:has-text("保存")').click();
+    await expect(page.locator("h3:has-text('新建项目')")).not.toBeVisible();
     const deleteCard = page.locator(".project-card").filter({ hasText: projectName });
     await expect(deleteCard).toBeVisible();
 
-    // Click delete within this project card
     await deleteCard.locator('button:has-text("删除")').click();
-    // Confirm dialog
-    await expect(page.locator(".dialog h3")).toContainText("确认删除");
-    await page.locator('.dialog button:has-text("删除")').click();
+    await expect(page.locator("h3:has-text('确认删除')")).toBeVisible({ timeout: 5000 });
+    await page.locator('button:has-text("删除")').last().click();
 
-    // Should not show the deleted project
     await expect(page.locator(".project-card").filter({ hasText: projectName })).not.toBeVisible();
   });
 
   test("project selector visible on create ticket page", async ({ page }) => {
     await login(page);
-    await page.goto(`${BASE_URL}/tickets/new`, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-    await page.waitForTimeout(3000);
-    // Page may redirect to ticket list if user lacks create permission;
-    // in that case, try clicking create button
-    const h1Text = await page.locator('h1').textContent().catch(() => '');
-    if (h1Text?.includes('工单列表')) {
-      const createLink = page.locator('a:has-text("新建工单"), button:has-text("新建工单")');
-      if (await createLink.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await createLink.click();
-        await page.waitForTimeout(2000);
-      }
-    }
-    await expect(page.locator("h1")).toContainText("新建工单");
+    await page.locator('a:has-text("新建工单"), button:has-text("新建工单")').click();
+    await expect(page.locator('input[placeholder="请输入工单标题"]')).toBeVisible({ timeout: 10_000 });
     await expect(page.locator("text=关联项目")).toBeVisible();
   });
 });

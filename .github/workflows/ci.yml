@@ -13,15 +13,30 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Validate docker-compose.yml
         run: docker compose config
+
+  submodule-check:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Verify upctl-agent submodule
+        run: |
+          test -d upctl-agent/ai-agent
+          test -f upctl-agent/scripts/cleanup_in_progress.sh
+          echo "upctl-agent submodule OK"
 
   integration:
     needs: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
 
       - name: Mask secrets in logs
         env:
@@ -30,6 +45,8 @@ jobs:
 
       - name: Build images
         timeout-minutes: 30
+        env:
+          BUILD_DATE: ${{ github.sha }}
         run: |
           # Pull base images with retry (Docker Hub often rate-limits CI runners)
           for img in rust:slim-bookworm node:22-alpine python:3.12-slim; do
@@ -102,9 +119,22 @@ jobs:
         run: |
           # Configure memory_dir so agent-prompt tests include "Memory 上下文" section
           docker compose exec -T upctl-svc sh -c 'mkdir -p /app/data && echo "/app/data" > /app/data/memory_dir.txt'
-          docker compose exec -T upctl-svc sh -c 'echo "不要进入plan mode，直接干活" > /app/data/prompt_prefix.txt'
-          # Create MEMORY.md so the assembled prompt references it
-          printf "upctl-compose dev compose stack\n" | docker compose exec -T upctl-svc sh -c 'cat > /app/data/MEMORY.md'
+          # Seed prompt_prefix.txt from canonical repo file
+          docker compose cp docs/prompt_prefix.txt upctl-svc:/app/data/prompt_prefix.txt
+          # Seed MEMORY.md from canonical repo file (not a throwaway one-liner)
+          docker compose cp docs/MEMORY.md upctl-svc:/app/data/MEMORY.md
+
+      - name: Verify MEMORY.md and prompt_prefix are properly seeded
+        run: |
+          echo "=== Verifying MEMORY.md ==="
+          docker compose exec -T upctl-svc sh -c 'wc -l /app/data/MEMORY.md && head -3 /app/data/MEMORY.md'
+          docker compose exec -T upctl-svc sh -c 'test -s /app/data/MEMORY.md && echo "✅ MEMORY.md exists and non-empty" || echo "❌ MEMORY.md missing/empty"'
+          echo "=== Verifying prompt_prefix.txt ==="
+          docker compose exec -T upctl-svc sh -c 'cat /app/data/prompt_prefix.txt && echo ""'
+          docker compose exec -T upctl-svc sh -c 'grep -q "直接干活" /app/data/prompt_prefix.txt && echo "✅ prompt_prefix contains expected content"'
+          echo "=== Verifying memory_dir.txt ==="
+          docker compose exec -T upctl-svc sh -c 'cat /app/data/memory_dir.txt'
+          docker compose exec -T upctl-svc sh -c 'grep -q "/app/data" /app/data/memory_dir.txt && echo "✅ memory_dir points to /app/data"'
 
       - name: Smoke test — nginx serves frontend
         run: |
@@ -139,6 +169,17 @@ jobs:
 
       - name: Copy test file to ai-agent
         run: docker compose cp tests/e2e_test.py ai-agent:/app/e2e_test.py
+
+      - name: Test — cleanup_in_progress.sh syntax and dry-run
+        run: |
+          docker compose cp upctl-agent/scripts/cleanup_in_progress.sh ai-agent:/app/cleanup_in_progress.sh
+          docker compose exec -T ai-agent bash -c '
+            bash -n /app/cleanup_in_progress.sh && echo "SYNTAX OK"
+            timeout 10 bash /app/cleanup_in_progress.sh && exit 1 || echo "NO-ENV exits nonzero: OK"
+            export GITEA_API_BASE="http://gitea:3000/api/v1/repos/weli/tickets"
+            export GITEA_AUTH_BASIC="ai-bot:ai-bot-dev-pass"
+            timeout 30 bash /app/cleanup_in_progress.sh && echo "LIVE RUN OK" || echo "LIVE RUN result: $?"
+          '
 
       - name: E2E — Authentication
         env:
@@ -182,7 +223,15 @@ jobs:
         run: |
           npm install
           npx playwright install chromium --with-deps 2>&1 | tail -3
-          npx playwright test
+          npx playwright test --reporter=list 2>&1
+
+      - name: Upload Playwright screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots
+          path: tests/playwright/screenshots/
+          retention-days: 7
 
       - name: Cleanup
         if: always()

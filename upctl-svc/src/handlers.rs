@@ -12,6 +12,21 @@ use sha2::Sha256;
 
 use crate::config;
 
+/// GET /api/v2/upctl/api/current_user — return current logged-in user info from JWT
+pub async fn current_user(
+    token: HtyToken,
+) -> Result<Json<HtyResponse<serde_json::Value>>, StatusCode> {
+    let hty_id = token.hty_id.clone().unwrap_or_default();
+    let roles = token.roles.clone().unwrap_or_default();
+
+    let resp = serde_json::json!({
+        "hty_id": hty_id,
+        "real_name": hty_id,
+        "roles": roles,
+    });
+    Ok(Json(wrap_ok_resp(resp)))
+}
+
 type LabelMap = HashMap<String, i64>;
 
 /// Simple URL percent-encoding for query parameters.
@@ -34,6 +49,32 @@ fn gitea_client() -> reqwest::Client {
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .expect("gitea client")
+}
+
+/// Archive a Gitea repository by name (e.g. "huike-back").
+/// Only works for repos on ci.moicen.com owned by "weli".
+async fn archive_gitea_repo(repo_name: &str) -> Result<(), String> {
+    let client = gitea_client();
+    let auth = config::gitea_auth_header();
+    let url = format!(
+        "{}/repos/weli/{repo_name}",
+        config::gitea_api_base()
+    );
+    let payload = serde_json::json!({"archived": true});
+    let resp = client
+        .patch(&url)
+        .header("Authorization", auth.as_str())
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("reqwest: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("Gitea {status}: {body}"));
+    }
+    tracing::info!("[archive_gitea_repo] archived weli/{repo_name}");
+    Ok(())
 }
 
 async fn gitea_label_values(
@@ -200,6 +241,12 @@ pub async fn gitea_list_tickets(
         })?;
 
     let status = resp.status();
+    let total_count: Option<i64> = resp
+        .headers()
+        .get("X-Total-Count")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse().ok());
+
     let body = resp.text().await.map_err(|e| {
         tracing::warn!("[gitea_list_tickets] read body: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
@@ -242,7 +289,8 @@ pub async fn gitea_list_tickets(
         if let Some(name) = submitter {
             if let Some(user) = ticket.get_mut("user") {
                 if let Some(obj) = user.as_object_mut() {
-                    obj.insert("login".to_string(), serde_json::Value::String(name));
+                    obj.insert("login".to_string(), serde_json::Value::String(name.clone()));
+                    obj.insert("full_name".to_string(), serde_json::Value::String(name));
                 }
             }
             if let Some(body) = ticket.get_mut("body") {
@@ -251,6 +299,26 @@ pub async fn gitea_list_tickets(
                         if let Some(idx) = rest.find('\n') {
                             let after = &rest[idx..];
                             *body = serde_json::Value::String(after.trim_start().to_string());
+                        }
+                    }
+                }
+            }
+        }
+        // Fill in full_name from known login→name mappings when Gitea full_name is empty
+        if let Some(user) = ticket.get("user") {
+            if let Some(obj) = user.as_object() {
+                let login = obj.get("login").and_then(|v| v.as_str()).unwrap_or("");
+                let full_name = obj.get("full_name").and_then(|v| v.as_str()).unwrap_or("");
+                if full_name.is_empty() && !login.is_empty() {
+                    let display = match login {
+                        "ai-bot" => Some("阿难"),
+                        _ => None,
+                    };
+                    if let Some(n) = display {
+                        if let Some(user_mut) = ticket.get_mut("user") {
+                            if let Some(obj_mut) = user_mut.as_object_mut() {
+                                obj_mut.insert("full_name".to_string(), serde_json::Value::String(n.to_string()));
+                            }
                         }
                     }
                 }
@@ -280,10 +348,14 @@ pub async fn gitea_list_tickets(
         });
     }
 
-    Ok(Json(wrap_ok_resp(serde_json::json!({
+    let mut result = serde_json::json!({
         "tickets": tickets,
         "claude_prompt_prefix": config::claude_prompt_prefix(),
-    }))))
+    });
+    if let Some(total) = total_count {
+        result["total_count"] = serde_json::json!(total);
+    }
+    Ok(Json(wrap_ok_resp(result)))
 }
 
 /// GET /api/v2/upctl/api/tickets/labels — list Gitea labels with colors
@@ -513,7 +585,8 @@ pub async fn gitea_get_ticket(
     if let Some(name) = submitter {
         if let Some(user) = issue_val.get_mut("user") {
             if let Some(obj) = user.as_object_mut() {
-                obj.insert("login".to_string(), serde_json::Value::String(name));
+                obj.insert("login".to_string(), serde_json::Value::String(name.clone()));
+                obj.insert("full_name".to_string(), serde_json::Value::String(name));
             }
         }
         if let Some(body) = issue_val.get_mut("body") {
@@ -522,6 +595,26 @@ pub async fn gitea_get_ticket(
                     if let Some(idx) = rest.find('\n') {
                         let after = &rest[idx..];
                         *body = serde_json::Value::String(after.trim_start().to_string());
+                    }
+                }
+            }
+        }
+    }
+    // Fill in full_name from known login→name mappings when Gitea full_name is empty
+    if let Some(user) = issue_val.get("user") {
+        if let Some(obj) = user.as_object() {
+            let login = obj.get("login").and_then(|v| v.as_str()).unwrap_or("");
+            let full_name = obj.get("full_name").and_then(|v| v.as_str()).unwrap_or("");
+            if full_name.is_empty() && !login.is_empty() {
+                let display = match login {
+                    "ai-bot" => Some("阿难"),
+                    _ => None,
+                };
+                if let Some(n) = display {
+                    if let Some(user_mut) = issue_val.get_mut("user") {
+                        if let Some(obj_mut) = user_mut.as_object_mut() {
+                            obj_mut.insert("full_name".to_string(), serde_json::Value::String(n.to_string()));
+                        }
                     }
                 }
             }
@@ -971,6 +1064,60 @@ pub async fn agent_send_keys(
     }
 }
 
+/// POST /api/v2/upctl/api/tickets/{id}/emergency-stop — send ESC twice to agent to stop work
+pub async fn emergency_stop_ticket(
+    token: HtyToken,
+    Path(id): Path<String>,
+) -> Result<Json<HtyResponse<String>>, StatusCode> {
+    if !is_admin_or_tester(&token) {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+    let session = std::env::var("AGENT_SESSION")
+        .or_else(|_| std::env::var("TMUX_DEFAULT_SESSION"))
+        .unwrap_or_else(|_| "deepseek".to_string());
+    if !crate::agent::AgentBackend::validate_session(&session) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let backend = crate::agent::AgentBackend::from_env();
+    // Send ESC twice for safety, with a brief pause between
+    let esc = "\x1b";
+    if let Err(e) = backend.send_keys(&session, esc, false).await {
+        let msg = format!("Failed to send ESC (1st): {e}");
+        return Ok(Json(HtyResponse {
+            r: false,
+            d: None,
+            e: Some(msg),
+            hty_err: None,
+        }));
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    if let Err(e) = backend.send_keys(&session, esc, false).await {
+        let msg = format!("Failed to send ESC (2nd): {e}");
+        return Ok(Json(HtyResponse {
+            r: false,
+            d: None,
+            e: Some(msg),
+            hty_err: None,
+        }));
+    }
+    // Post a comment on the ticket recording the emergency stop
+    let client = gitea_client();
+    let auth = config::gitea_auth_header();
+    let comment_body = format!("🛑 已向 agent 发送急停信号（ESC ×2，session: {session}）");
+    let comment_payload = serde_json::json!({ "body": comment_body });
+    let _ = client
+        .post(format!(
+            "{}/repos/weli/tickets/issues/{id}/comments",
+            config::gitea_api_base()
+        ))
+        .header("Authorization", auth.as_str())
+        .header("Content-Type", "application/json")
+        .json(&comment_payload)
+        .send()
+        .await;
+    Ok(Json(wrap_ok_resp("ESC sent twice".to_string())))
+}
+
 /// POST /api/v2/upctl/api/agent/prompt — send prompt to agent, wait, capture response
 #[derive(serde::Deserialize)]
 pub struct AgentPromptReq {
@@ -1088,8 +1235,8 @@ async fn build_ticket_context(ticket_number: i64) -> Result<String, StatusCode> 
             if let Some(ref doc) = p.memory_doc {
                 ctx.push_str(&format!(
                     "  Memory: {}...\n",
-                    if doc.len() > 200 {
-                        format!("{}...", &doc[..200])
+                    if doc.chars().count() > 200 {
+                        format!("{}...", doc.chars().take(200).collect::<String>())
                     } else {
                         doc.clone()
                     }
@@ -1421,10 +1568,139 @@ pub async fn update_project(
     }
     if let Some(val) = req.is_archived {
         projects[idx].is_archived = val;
+        // When archiving a Gitea-hosted project, also archive the repo
+        if val {
+            if let Some(ref repo_url) = projects[idx].repo_url {
+                if repo_url.contains("ci.moicen.com/weli/") {
+                    let repo_name = repo_url.rsplit('/').next().unwrap_or("");
+                    if !repo_name.is_empty() {
+                        let result = archive_gitea_repo(repo_name).await;
+                        if let Err(e) = result {
+                            tracing::warn!("[update_project] failed to archive Gitea repo {repo_name}: {e}");
+                        }
+                    }
+                }
+            }
+        }
     }
     projects[idx].updated_at = now.clone();
     write_projects(&projects).await?;
     Ok(Json(wrap_ok_resp(serde_json::json!(projects[idx]))))
+}
+
+// ── Deploy environment management ─────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct DeployEnv {
+    pub id: String,
+    pub name: String,
+    pub domain: Option<String>,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CreateDeployEnvReq {
+    pub name: String,
+    pub domain: Option<String>,
+    pub description: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct UpdateDeployEnvReq {
+    pub name: Option<String>,
+    pub domain: Option<String>,
+    pub description: Option<String>,
+}
+
+fn deploy_envs_path() -> std::path::PathBuf {
+    std::path::Path::new(&crate::config::data_dir()).join("deploy_envs.json")
+}
+
+async fn read_deploy_envs() -> Result<Vec<DeployEnv>, StatusCode> {
+    let path = deploy_envs_path();
+    if !path.exists() { return Ok(Vec::new()); }
+    let data = tokio::fs::read_to_string(&path).await.map_err(|e| {
+        tracing::warn!("[deploy_env] read error: {e}"); StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    serde_json::from_str(&data).map_err(|e| {
+        tracing::warn!("[deploy_env] parse error: {e}"); StatusCode::INTERNAL_SERVER_ERROR
+    })
+}
+
+async fn write_deploy_envs(envs: &[DeployEnv]) -> Result<(), StatusCode> {
+    let path = deploy_envs_path();
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+            tracing::warn!("[deploy_env] create dir error: {e}"); StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+    }
+    let data = serde_json::to_string_pretty(envs).map_err(|e| {
+        tracing::warn!("[deploy_env] serialize error: {e}"); StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    tokio::fs::write(&path, &data).await.map_err(|e| {
+        tracing::warn!("[deploy_env] write error: {e}"); StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(())
+}
+
+/// GET /api/v2/upctl/api/deploy_envs
+pub async fn list_deploy_envs() -> Json<HtyResponse<Vec<DeployEnv>>> {
+    let envs = read_deploy_envs().await.unwrap_or_default();
+    Json(wrap_ok_resp(envs))
+}
+
+/// POST /api/v2/upctl/api/deploy_envs — create (ADMIN)
+pub async fn create_deploy_env(
+    token: HtyToken,
+    Json(req): Json<CreateDeployEnvReq>,
+) -> Result<Json<HtyResponse<serde_json::Value>>, StatusCode> {
+    if !is_admin_or_tester(&token) { return Ok(Json(forbidden_resp("Admin role required"))); }
+    let mut envs = read_deploy_envs().await?;
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let env = DeployEnv {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: req.name,
+        domain: req.domain,
+        description: req.description,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+    envs.push(env.clone());
+    write_deploy_envs(&envs).await?;
+    Ok(Json(wrap_ok_resp(serde_json::json!(env))))
+}
+
+/// PUT /api/v2/upctl/api/deploy_envs/{id} — update (ADMIN)
+pub async fn update_deploy_env(
+    token: HtyToken,
+    Path(id): Path<String>,
+    Json(req): Json<UpdateDeployEnvReq>,
+) -> Result<Json<HtyResponse<serde_json::Value>>, StatusCode> {
+    if !is_admin_or_tester(&token) { return Ok(Json(forbidden_resp("Admin role required"))); }
+    let mut envs = read_deploy_envs().await?;
+    let idx = envs.iter().position(|e| e.id == id).ok_or(StatusCode::NOT_FOUND)?;
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    if let Some(v) = req.name { envs[idx].name = v; }
+    if let Some(v) = req.domain { envs[idx].domain = Some(v); }
+    if let Some(v) = req.description { envs[idx].description = Some(v); }
+    envs[idx].updated_at = now;
+    write_deploy_envs(&envs).await?;
+    Ok(Json(wrap_ok_resp(serde_json::json!(envs[idx]))))
+}
+
+/// DELETE /api/v2/upctl/api/deploy_envs/{id} — delete (ADMIN)
+pub async fn delete_deploy_env(
+    token: HtyToken,
+    Path(id): Path<String>,
+) -> Result<Json<HtyResponse<serde_json::Value>>, StatusCode> {
+    if !is_admin_or_tester(&token) { return Ok(Json(forbidden_resp("Admin role required"))); }
+    let mut envs = read_deploy_envs().await?;
+    let idx = envs.iter().position(|e| e.id == id).ok_or(StatusCode::NOT_FOUND)?;
+    envs.remove(idx);
+    write_deploy_envs(&envs).await?;
+    Ok(Json(wrap_ok_resp(serde_json::json!({"ok": true}))))
 }
 
 /// DELETE /api/v2/upctl/api/projects/{id} — delete a project (ADMIN only)

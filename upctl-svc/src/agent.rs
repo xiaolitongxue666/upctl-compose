@@ -9,6 +9,12 @@ impl std::fmt::Display for AgentError {
     }
 }
 
+impl From<String> for AgentError {
+    fn from(msg: String) -> Self {
+        AgentError(msg)
+    }
+}
+
 /// Agent backend abstraction — tmux operations via local or SSH tunnel.
 ///
 /// # Configuration (env vars)
@@ -94,17 +100,16 @@ impl AgentBackend {
         }
     }
 
-    /// Send a prompt to the agent TUI with two-step submit.
-    /// First types the text (literal mode), then presses Enter twice for reliability.
+    /// Send a prompt to the agent TUI.
+    /// Types the text (literal mode), then presses Enter once.
+    /// Single Enter prevents duplicate submission when the TUI is in
+    /// a ready-to-receive state (which would happen with a second Enter).
     pub async fn send_prompt(&self, session: &str, prompt: &str) -> Result<(), AgentError> {
         // Step 1: type the prompt text (literal mode — handles -, [, etc.)
         self.send_keys(session, prompt, true).await?;
         // Brief pause to let the TUI process the text input
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
         // Step 2: press Enter to submit (NOT literal — "Enter" is a key name)
-        self.send_keys(session, "Enter", false).await?;
-        // Extra Enter to ensure the prompt is submitted even if the first one was eaten
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         self.send_keys(session, "Enter", false).await
     }
 
